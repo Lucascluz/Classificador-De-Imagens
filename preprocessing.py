@@ -3,7 +3,7 @@ import shutil
 import os
 
 # Carregar o CSV para um DataFrame do pandas
-df = pd.read_csv('data/train/_classes.csv', header=None)  # Definir header=None para indicar que não há cabeçalho no arquivo CSV
+df = pd.read_csv('data/valid/_classes.csv', header=None)  # Definir header=None para indicar que não há cabeçalho no arquivo CSV
 
 # Criar diretórios para as três categorias
 categorias = ['fresh', 'half-fresh', 'spoiled']
@@ -28,7 +28,7 @@ for index, row in df.iterrows():
         print(f"A imagem {imagem} não possui uma classe válida.")
         continue
     
-    origem = 'data/train/' + imagem  # Caminho para a imagem original
+    origem = 'data/valid/' + imagem  # Caminho para a imagem original
     destino_completo = destino + imagem  # Caminho para onde a imagem deve ser movida
     
     shutil.move(origem, destino_completo)  # Movendo a imagem

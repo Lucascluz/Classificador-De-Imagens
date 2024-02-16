@@ -1,56 +1,85 @@
 import os
-import numpy as np
+import matplotlib.pyplot as plt  # Corrected import statement
 import tensorflow as tf
 
-from tensorflow.keras.preprocessing.image import ImageDataGenerator
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Conv2D, MaxPooling2D, Flatten, Dense, Dropout
+# Definindo e quantificando imagens de treino e validação
+dataset_dir = os.path.join(os.getcwd(), "data")
 
+dataset_train_dir = os.path.join(dataset_dir, "train")
+dataset_train_fresh_len = len(os.listdir(
+    os.path.join(dataset_train_dir, "fresh")))
+dataset_train_half_fresh_len = len(os.listdir(
+    os.path.join(dataset_train_dir, "half-fresh")))
+dataset_train_spoiled_len = len(os.listdir(
+    os.path.join(dataset_train_dir, "spoiled")))
 
-# Configurações
-data_dir = "./data"
-img_height, img_width = 416, 416
+dataset_validation_dir = os.path.join(dataset_dir, "valid")
+dataset_validation_fresh_len = len(os.listdir(
+    os.path.join(dataset_validation_dir, "fresh")))
+dataset_validation_half_fresh_len = len(os.listdir(
+    os.path.join(dataset_validation_dir, "half-fresh")))
+dataset_validation_spoiled_len = len(os.listdir(
+    os.path.join(dataset_validation_dir, "spoiled")))
+
+print("Train Fresh: %s" % dataset_train_fresh_len)
+print("Train Half-Fresh: %s" % dataset_train_half_fresh_len)
+print("Train Spoiled: %s" % dataset_train_spoiled_len)
+
+print("Validation Fresh: %s" % dataset_validation_fresh_len)
+print("Validation Half-Fresh: %s" % dataset_validation_half_fresh_len)
+print("Validation Spoiled: %s" % dataset_validation_spoiled_len)
+
+# Configurações de imagem
+image_width = 416
+image_height = 416
+image_color_channel = 3
+iamge_color_channel_size = 255
+image_size = (image_width, image_height)
+image_shape = image_size + (image_color_channel,)
+
+# Configurações de remessas de treinamento
 batch_size = 32
-num_classes = 3
-espochs = 25
+epochs = 20
+learning_rate = 0.0001
 
-# Gerador de dados
-train_datagen = ImageDataGenerator(
-    rescale=1.0 / 255,
-    validation_split=0.2,  # 80% treino, 20% validação
-    shear_range=0.2,
-    zoom_range=0.2,
-    hortizontal_flip=True,
+class_name = ["fresh",  "half-fresh", "spoiled"]
+
+# Configurações de treinamento
+dataset_train = tf.keras.preprocessing.image_dataset_from_directory(
+    dataset_train_dir,
+    image_size=image_size,
+    batch_size=batch_size,
+    shuffle=True
 )
 
-# Modelo
-model = Sequential([
-    Conv2D(32, (3, 3), activation='relu',
-           input_shape=(img_height, img_width, 3)),
-    MaxPooling2D((2, 2)),
-    Conv2D(64, (3, 3), activation='relu'),
-    MaxPooling2D((2, 2)),
-    Conv2D(128, (3, 3), activation='relu'),
-    MaxPooling2D((2, 2)),
-    Flatten(),
-    Dense(512, activation='relu'),
-    Dropout(0.5),
-    Dense(num_classes, activation='softmax')
-])
-
-model.compile(
-    optimizer="adam",
-    loss="categorical_crossentropy",
-    metrics=["accuracy"],
+# Configurações de treinamento
+dataset_validation = tf.keras.preprocessing.image_dataset_from_directory(
+    dataset_validation_dir,
+    image_size=image_size,
+    batch_size=batch_size,
+    shuffle=True
 )
 
-# Treinamento
-history = model.fit(
-    train_generator,
-    epochs=epochs,
-    validation_data=validation_generator
-)
+dataset_validation_cardinality = tf.data.experimental.cardinality(
+    dataset_validation)
+dataset_validation_batches = dataset_validation_cardinality // 5
 
-# Salvar Modelo
-model.save("meu_modelo.h5")
-print("modelo salvo com sucesso")
+dataset_test = dataset_validation.take(dataset_validation_batches)
+dataset_validation = dataset_validation.skip(dataset_validation_batches)
+
+print("Validation Dataset Cardinality: %d" % tf.data.experimental.cardinality(dataset_validation))
+print("Test Dataset Cardinality: %d " %tf.data.experimental.cardinality(dataset_test))
+
+def plot_dataset(dataset):
+    plt.clf()  # Corrected clearing the figure
+    plt.figure(figsize=(15, 15))
+    
+    for features, labels in dataset.take(1):
+        for i in range(9):
+            plt.subplot(3, 3, i + 1)
+            plt.axis("off")
+            
+            plt.imshow(features[i].numpy().astype("uint8"))  # Corrected typo
+            plt.title(class_name(labels[i]))  # Corrected typo
+            
+plot_dataset(dataset_train)
