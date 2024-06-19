@@ -1,140 +1,87 @@
-import os
+# Built-in libraries
+import customtkinter as ctk
+from tkinter import filedialog, messagebox
 import cv2
-import torch
-
 import numpy as np
-import tkinter as tk
-import torch.nn as nn
-import torch.nn.functional as F
-
-from tkinter import filedialog
-from tkinter import ttk
-from matplotlib import pyplot as plt
-from matplotlib import gridspec as gridspec
 from PIL import Image, ImageTk
-from skimage.util import img_as_ubyte
-from skimage.feature import graycomatrix, graycoprops
-from sklearn.model_selection import train_test_split
+import torch
+from torch import nn
+from torchvision.transforms import ToTensor, Normalize, Compose, Resize, CenterCrop
+from efficientnet_pytorch import EfficientNet
+from torchvision import models
+import torch.nn as nn
+import os
+import time
 
 global zoom_factor
 
-class TireNet(nn.Module):
-        
-    def __init__(self, printsize):
-            
-        super().__init__()
-            
-        # For printing size for each layer
-        self.printsize = printsize
-            
-        # Model architecture (CNN Layers)
-        
-        self.con1 = nn.Conv2d(3, 32, 3, padding=1)
-        self.bn1 = nn.BatchNorm2d(32)
-        self.con2 = nn.Conv2d(32, 64, 5, stride=2)
-        self.bn2 = nn.BatchNorm2d(64)
-        self.con3 = nn.Conv2d(64, 128, 5, stride=2)
-        self.bn3 = nn.BatchNorm2d(128)
+class CustomEfficientNet(nn.Module):
+    def __init__(self, num_classes):
+        super(CustomEfficientNet, self).__init__()
+        self.efficient_net = EfficientNet.from_pretrained('efficientnet-b0')
+        efficient_net_output_dim = self.efficient_net._fc.in_features
+        self.efficient_net._fc = nn.Identity()  # Remove the final classification layer
+        self.fc_combined = nn.Linear(efficient_net_output_dim, num_classes)
 
-        # Maxpool 
-        self.pool = nn.MaxPool2d(2)
-        
-        # FFN layer
-        self.fnn1 = nn.Linear(4608, 50)
-        self.bnfnn = nn.BatchNorm1d(50)
-        self.dropfnn = nn.Dropout(0.5)
-        self.output = nn.Linear(50, 1)
-        
-    def forward(self, x):
-            
-        # CNN Layer 1
-        if self.printsize: print(f"Input shape is {x.shape} before go to con1")
-        x = F.relu(self.con1(x))
-        x = self.bn1(x)
-        x = self.pool(x)
-        
-        # CNN Layer 2 with maxpool
-        if self.printsize: print(f"Input shape is {x.shape} after con1")
-        x = F.relu(self.con2(x))
-        x = self.bn2(x)
-        x = self.pool(x)
-            
-        # CNN Layer 3
-        if self.printsize: print(f"Input shape is {x.shape} after con2 and maxpool")
-        x = F.relu(self.con3(x))
-        x = self.bn3(x)
-        x = self.pool(x)
-            
-        # Reshape x into vector
-        x = x.view(x.shape[0], -1)
-        if self.printsize: print(f"x size after reshape is {x.shape}")
-                
-        # FNN Layer 1 - 2
-        x = F.relu(self.fnn1(x))
-        x = self.bnfnn(x)
-
-        return self.output(x)
+    def forward(self, images):
+        efficient_net_out = self.efficient_net(images)
+        efficient_net_out = torch.flatten(efficient_net_out, 1)
+        out = self.fc_combined(efficient_net_out)
+        return out
 
 class ImageViewerApp:
     def __init__(self, master):
         self.master = master
         self.master.title("Image Viewer")
+        self.master.geometry("800x600")
+        self.master.resizable(True, True)
 
-        self.frame = tk.Frame(self.master)
-        self.frame.pack(fill=tk.BOTH, expand=True,)
+        self.frame = ctk.CTkFrame(self.master)
+        self.frame.pack(fill=ctk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(self.frame)
-        self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True,)
+        self.canvas = ctk.CTkCanvas(self.frame)
+        self.canvas.pack(side=ctk.LEFT, fill=ctk.BOTH, expand=True)
         
-        self.image_frame = tk.Frame(self.canvas)
-        self.canvas.create_window((0, 0), window=self.image_frame, anchor=tk.NW, )
+        self.image_frame = ctk.CTkFrame(self.canvas)
+        self.canvas.create_window((0, 0), window=self.image_frame, anchor=ctk.NW)
 
-        self.image_label = tk.Label(self.image_frame, )
+        self.image_label = ctk.CTkLabel(self.image_frame)
         self.image_label.pack()
             
-        self.scrollbarVertical = ttk.Scrollbar(self.frame, orient=tk.VERTICAL, command=self.canvas.yview)
-        self.scrollbarVertical.pack(side=tk.RIGHT, fill=tk.Y)
+        self.scrollbarVertical = ctk.CTkScrollbar(self.frame, orientation=ctk.VERTICAL, command=self.canvas.yview)
+        self.scrollbarVertical.pack(side=ctk.RIGHT, fill=ctk.Y)
         self.canvas.configure(yscrollcommand=self.scrollbarVertical.set)
 
-        self.scrollbarHorizontal = ttk.Scrollbar(self.master, orient=tk.HORIZONTAL, command=self.canvas.xview, )
-        self.scrollbarHorizontal.pack(side=tk.BOTTOM, fill=tk.X)
+        self.scrollbarHorizontal = ctk.CTkScrollbar(self.master, orientation=ctk.HORIZONTAL, command=self.canvas.xview)
+        self.scrollbarHorizontal.pack(side=ctk.BOTTOM, fill=ctk.X)
         self.canvas.configure(xscrollcommand=self.scrollbarHorizontal.set)
 
-        # Criando um frame para os botões adicionais
-        self.button_frame = tk.Frame(self.master)
+        self.button_frame = ctk.CTkFrame(self.master)
         self.button_frame.pack()
-        
-        self.open_button = tk.Button(self.button_frame, text="Open Image", command=self.open_image, width=20, height=2)
-        self.open_button.pack(side=tk.LEFT)
-        
-        self.zoom_plus_button = tk.Button(self.button_frame, text="+", width=6, height=2, state="disabled")
-        self.zoom_plus_button.pack(side=tk.LEFT)
-        
-        self.zoom_minus_button = tk.Button(self.button_frame, text="-", width=6, height=2, state="disabled")
-        self.zoom_minus_button.pack(side=tk.LEFT)
-        
-        self.classify_button = tk.Button(self.button_frame, text="Classification", width=20, height=2, state = "disabled")
-        self.classify_button.pack(side=tk.LEFT)
-        
-    def place_class(self, file_path):
-        global zoom_factor
-        
-        image = cv2.imread(file_path)
-        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image_pil = Image.fromarray(image_rgb)
-        
-        # Atualizando o tamanho da imagem
-        img_width = int(image_pil.width * zoom_factor)
-        img_height = int(image_pil.height * zoom_factor)
 
-        # Redimensionando a imagem
-        image_resized = image_pil.resize((img_width, img_height))
-        photo = ImageTk.PhotoImage(image_resized)
+        self.button_info = self.create_buttons()
         
-        # Limpa o canvas antes de adicionar a nova imagem
+        self.image_pil_base = None
+        
+    def create_buttons(self):
+        button_info = [
+            ("Open Image", self.open_image),
+            ("+", self.zoom_plus),
+            ("-", self.zoom_minus),
+            ("Classify", self.eficinetBinaryClassification),
+        ]
+
+        for text, command in button_info:
+            state = "disabled" if text != "Open Image" else "active"
+            btn = ctk.CTkButton(self.button_frame, text=text, command=command, width=100, height=50, state=state)
+            btn.pack(side=ctk.LEFT)
+            setattr(self, f"{text.replace(' ', '_').lower()}_button", btn)
+            
+        return button_info
+
+    def place_graph(self, photo):
         self.canvas.delete("all")
 
-        # Calcula as coordenadas para centralizar a imagem
         canvas_width = self.canvas.winfo_width()
         canvas_height = self.canvas.winfo_height()
         image_width = photo.width()
@@ -142,121 +89,86 @@ class ImageViewerApp:
         x_offset = (canvas_width - image_width) // 2
         y_offset = (canvas_height - image_height) // 2
 
-        # Adiciona a imagem ao canvas centralizada
-        self.canvas.create_image(x_offset, y_offset, anchor="nw", image = photo)
+        self.canvas.create_image(x_offset, y_offset, anchor="nw", image=photo)
         self.canvas.image = photo
-        
-        self.canvas.config(scrollregion=self.canvas.bbox("all")) 
-        
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))    
+
     def place_image(self, image_pil):
-        global zoom_factor
-        
-        # Atualizando o tamanho da imagem
         img_width = int(image_pil.width * zoom_factor)
         img_height = int(image_pil.height * zoom_factor)
-
-        # Redimensionando a imagem
         image_resized = image_pil.resize((img_width, img_height))
         photo = ImageTk.PhotoImage(image_resized)
-        
-        # Limpa o canvas antes de adicionar a nova imagem
-        self.canvas.delete("all")
 
-        # Calcula as coordenadas para centralizar a imagem
-        canvas_width = self.canvas.winfo_width()
-        canvas_height = self.canvas.winfo_height()
-        image_width = photo.width()
-        image_height = photo.height()
-        x_offset = (canvas_width - image_width) // 2
-        y_offset = (canvas_height - image_height) // 2
-
-        # Adiciona a imagem ao canvas centralizada
-        self.canvas.create_image(x_offset, y_offset, anchor="nw", image = photo)
-        self.canvas.image = photo
-        
-        self.canvas.config(scrollregion=self.canvas.bbox("all"))
-        
-        self.zoom_plus_button.config(state="active")
-        self.zoom_minus_button.config(state="active")    
-        self.classify_button.config(state="active", text="Classification", command= lambda: self.classify_image(image_pil))
+        self.place_graph(photo)
             
     def open_image(self):
         file_path = filedialog.askopenfilename()
-        
         if file_path:
             image = cv2.imread(file_path)
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-            image_pil_base = Image.fromarray(image_rgb)
+            self.image_pil_base = Image.fromarray(image_rgb)
 
-            # Define o fator de zoom para o valor padrão
             global zoom_factor
             zoom_factor = 1.0
 
-            self.place_image(image_pil_base)
+            self.place_image(self.image_pil_base)
             
-            self.open_button.config(text="Change Image")
-            self.zoom_plus_button.config(state="active", command = lambda: self.zoom_plus(image_pil_base))
-            self.zoom_minus_button.config(state="active", command = lambda: self.zoom_minus(image_pil_base))
-            self.classify_button.config(state="active", text="Classification",command= lambda: self.classify_image(image_pil_base))
-            
-    def zoom_plus(self, image_pil_base):
-        # Aumenta o fator de zoom em 10%
+            self.open_image_button.configure(text="Change Image")
+
+    def zoom_plus(self):
         global zoom_factor
-        zoom_factor = zoom_factor + 0.1
+        zoom_factor += 0.1
+        self.place_image(self.image_pil_base)
 
-        self.place_image(image_pil_base)
-
-        
-    def zoom_minus(self, image_pil_base):
-        # Aumenta o fator de zoom em 10%
+    def zoom_minus(self):
         global zoom_factor
-        zoom_factor = zoom_factor - 0.1
+        zoom_factor -= 0.1
+        self.place_image(self.image_pil_base)
 
-        self.place_image(image_pil_base)
-        
-    def preprocessing(self, image_pil_base):
-        # Redimensione a imagem para ser compatível com a forma desejada
-        image_resized = image_pil_base.resize((224, 224))
-        
-        # Normalize a imagem
-        image_processed = np.array(image_resized) / np.max(image_resized)
-        
-        # Remodele a imagem para a forma desejada
-        image_processed = torch.tensor(image_processed.reshape(1, 3, 224, 224)).float()
-        
-        return image_processed
-        
-    def classify_image(self, image_pil):
-        
-        input_image = self.preprocessing(image_pil) 
-        # Carregue o modelo salvo
-        model = TireNet(printsize = False)  # Crie uma instância da sua rede neural
-        model.load_state_dict(torch.load('modelo_predicao_pth'))
-        model.eval()  # Coloque o modelo no modo de avaliação
-        
-        # Suponha que 'input_image' seja a imagem de entrada
+    def update_image(self, cvt_color_code, convert_method, mode):
+        if self.image_pil_base:
+            image_pil_rgb = self.image_pil_base.convert('RGB')
+            matrix_rgb = np.array(image_pil_rgb)
+            matrix_converted = cvt_color_code == 'convert' and np.array(image_pil_rgb.convert(mode)) or cv2.cvtColor(matrix_rgb, cvt_color_code)
+            image_pil_converted = Image.fromarray(matrix_converted)
+            self.place_image(image_pil_converted)
+
+    def eficinetBinaryClassification(self):
+        start_time = time.time()
+        model_path = os.path.join('models', 'efficientnet_binary_fine_tuned.pth')
+
+        preprocess = Compose([
+            Resize(224),
+            CenterCrop(224),
+            ToTensor(),
+            Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+        image = self.image_pil_base.convert('RGB')
+        input_tensor = preprocess(image).unsqueeze(0)
+
+        model = models.efficientnet_b0()
+        num_features = model.classifier[1].in_features
+        model.fc = nn.Linear(num_features, 2)
+
+        model.load_state_dict(torch.load(model_path, map_location=torch.device('cpu')))        
+        model.eval()
+
         with torch.no_grad():
-            output = model(input_image)
-            predicted_class = torch.argmax(output).item()
-        if(predicted_class == 0):
-            self.place_class("assets/cracked.jpeg")
-        else:
-            self.place_class("assets/normal.jpeg")
+            output = model(input_tensor)
+        class_labels = ["Normal", "Cracked"]
+        _, predicted_idx = torch.max(output, 1)
+        predicted_label = class_labels[predicted_idx.item()]
+        prediction_time = time.time() - start_time
+        messagebox.showinfo("Classification", f"Possible:{class_labels}\n" + f"\nPrediction: {predicted_label}\n" + f"Time: {prediction_time:.2f}s")
             
-        self.zoom_plus_button.config(state="disabled")
-        self.zoom_minus_button.config(state="disabled")    
-        self.classify_button.config(state="active", text="Image", command= lambda: self.place_image(image_pil))
-            
+    
 def main():
-    # Cria a janela principal da aplicação
-    root = tk.Tk()
-    
-    # Define o estado inicial da janela como maximizado
-    root.state('zoomed')  # 'zoomed' maximiza a janela na maioria dos sistemas
-    
-    # Inicializa a aplicação e inicia o loop principal da interface gráfica
+    ctk.set_appearance_mode("dark")
+    ctk.set_default_color_theme("blue")
+    root = ctk.CTk()
     app = ImageViewerApp(root)
     root.mainloop()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     main()
