@@ -172,7 +172,7 @@ class ImageViewerApp:
 
         with torch.no_grad():
             output = model(input_tensor)
-        class_labels = ["Normal", "Cracked"]
+        class_labels = ["Cracked", "Normal"]
         _, predicted_idx = torch.max(output, 1)
         predicted_label = class_labels[predicted_idx.item()]
         prediction_time = time.time() - start_time
